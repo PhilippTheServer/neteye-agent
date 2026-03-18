@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/neteye/agent/internal/collector"
 	"github.com/neteye/agent/internal/config"
 )
@@ -111,7 +112,7 @@ func (c *Client) runSession(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", c.cfg.CenterURL, err)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	c.log.Info("connected to center", "url", c.cfg.CenterURL)
 

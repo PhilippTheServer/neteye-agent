@@ -21,6 +21,7 @@ type Interface struct {
 	Addresses []Address
 }
 
+// Address is a single IP address (with prefix) assigned to an interface.
 type Address struct {
 	Address string // CIDR, e.g. "192.168.1.10/24"
 	Family  string // "ipv4" | "ipv6"

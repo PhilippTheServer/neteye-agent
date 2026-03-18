@@ -30,7 +30,7 @@ func CollectMetrics() (map[string]Metrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open /proc/net/dev: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only, close error not actionable
 
 	result := make(map[string]Metrics)
 	scanner := bufio.NewScanner(f)

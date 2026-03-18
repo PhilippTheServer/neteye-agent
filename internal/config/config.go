@@ -1,3 +1,4 @@
+// Package config loads and validates neteye-agent configuration from YAML and environment variables.
 package config
 
 import (
@@ -11,10 +12,10 @@ import (
 
 // Config is the top-level configuration for neteye-agent.
 type Config struct {
-	CenterURL       string        `yaml:"center_url"`        // ws://host:9090/ws
-	Hostname        string        `yaml:"hostname"`          // override auto-detect
-	CollectInterval time.Duration `yaml:"collect_interval"`  // default 5s
-	ReconnectDelay  time.Duration `yaml:"reconnect_delay"`   // default 5s
+	CenterURL       string        `yaml:"center_url"`       // ws://host:9090/ws
+	Hostname        string        `yaml:"hostname"`         // override auto-detect
+	CollectInterval time.Duration `yaml:"collect_interval"` // default 5s
+	ReconnectDelay  time.Duration `yaml:"reconnect_delay"`  // default 5s
 	AgentVersion    string        `yaml:"agent_version"`
 }
 
@@ -39,7 +40,7 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("open config %s: %w", path, err)
 		}
-		defer f.Close()
+		defer f.Close() //nolint:errcheck // read-only, close error not actionable
 		if err := yaml.NewDecoder(f).Decode(cfg); err != nil {
 			return nil, fmt.Errorf("decode config: %w", err)
 		}
