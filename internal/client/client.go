@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -35,12 +35,12 @@ type updPayload struct {
 }
 
 type ifaceInfo struct {
-	Name      string      `json:"name"`
-	MAC       string      `json:"mac"`
-	State     string      `json:"state"`
-	MTU       int         `json:"mtu"`
-	SpeedMbps int64       `json:"speed_mbps"`
-	Addresses []addrInfo  `json:"addresses"`
+	Name      string       `json:"name"`
+	MAC       string       `json:"mac"`
+	State     string       `json:"state"`
+	MTU       int          `json:"mtu"`
+	SpeedMbps int64        `json:"speed_mbps"`
+	Addresses []addrInfo   `json:"addresses"`
 	Metrics   ifaceMetrics `json:"metrics"`
 }
 
@@ -71,11 +71,12 @@ type routeInfo struct {
 // Client handles one persistent WebSocket session to the center.
 type Client struct {
 	cfg *config.Config
+	log *slog.Logger
 }
 
 // New creates a Client.
-func New(cfg *config.Config) *Client {
-	return &Client{cfg: cfg}
+func New(cfg *config.Config, log *slog.Logger) *Client {
+	return &Client{cfg: cfg, log: log}
 }
 
 // Run connects to the center and keeps sending updates until ctx is done.
@@ -89,7 +90,9 @@ func (c *Client) Run(ctx context.Context) {
 		}
 
 		if err := c.runSession(ctx); err != nil {
-			log.Printf("session error: %v — reconnecting in %v", err, c.cfg.ReconnectDelay)
+			c.log.Warn("session error, reconnecting",
+				"err", err,
+				"delay", c.cfg.ReconnectDelay)
 		}
 
 		select {
@@ -110,7 +113,7 @@ func (c *Client) runSession(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	log.Printf("connected to center at %s", c.cfg.CenterURL)
+	c.log.Info("connected to center", "url", c.cfg.CenterURL)
 
 	// Send registration.
 	reg := agentMessage{
@@ -125,6 +128,7 @@ func (c *Client) runSession(ctx context.Context) error {
 	if err := writeJSON(conn, reg); err != nil {
 		return fmt.Errorf("send register: %w", err)
 	}
+	c.log.Debug("registration sent", "hostname", c.cfg.Hostname)
 
 	ticker := time.NewTicker(c.cfg.CollectInterval)
 	defer ticker.Stop()
@@ -139,9 +143,14 @@ func (c *Client) runSession(ctx context.Context) error {
 		case <-ticker.C:
 			update, err := c.collectUpdate()
 			if err != nil {
-				log.Printf("collect error: %v", err)
+				c.log.Error("collect error", "err", err)
 				continue
 			}
+			ifaceCount := 0
+			if update.Update != nil {
+				ifaceCount = len(update.Update.Interfaces)
+			}
+			c.log.Debug("sending update", "interfaces", ifaceCount)
 			if err := writeJSON(conn, update); err != nil {
 				return fmt.Errorf("send update: %w", err)
 			}
@@ -162,7 +171,7 @@ func (c *Client) collectUpdate() (agentMessage, error) {
 
 	routes, err := collector.CollectRoutes()
 	if err != nil {
-		log.Printf("routes collection warning: %v", err)
+		c.log.Warn("routes collection failed, sending without routes", "err", err)
 		// Non-fatal: continue without routes.
 	}
 
