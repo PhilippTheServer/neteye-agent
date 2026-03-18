@@ -1,0 +1,100 @@
+name: CI / Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest  # agent uses Linux syscalls — lint on Linux only
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.10.1
+
+  # ── Test ────────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest  # Linux required: uses netlink + /proc/net/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  # ── Release (tags only) ─────────────────────────────────────────────────────
+  release:
+    name: Release
+    needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create GitHub releases
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for --generate-notes changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        # The agent is Linux-only (netlink + /proc/net/dev). Build for the two
+        # most common HPC architectures: amd64 (x86-64) and arm64 (Graviton/RPi).
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            echo "Building linux/$arch …"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+              go build \
+                -trimpath \
+                -ldflags="-s -w" \
+                -o "dist/neteye-agent-linux-${arch}" \
+                ./cmd/agent
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          echo "── SHA256SUMS ──"
+          cat SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "neteye-agent ${{ github.ref_name }}" \
+            --generate-notes \
+            --verify-tag \
+            dist/neteye-agent-linux-amd64 \
+            dist/neteye-agent-linux-arm64 \
+            dist/SHA256SUMS
